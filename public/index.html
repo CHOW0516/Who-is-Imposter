@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Who is the Imposter?</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="top-bar">
+      <h1>🕵️ Who is the Imposter?</h1>
+      <button id="leave-button" class="link-button hidden">Leave</button>
+    </header>
+
+    <div id="error-box" class="error hidden"></div>
+
+    <!-- Home: create or join a room -->
+    <section id="home-screen" class="card">
+      <p class="intro">Everyone gets the same secret word, except one sneaky imposter. Give funny clues, then vote out the imposter!</p>
+      <label for="name-input">Your nickname</label>
+      <input id="name-input" maxlength="16" placeholder="e.g. Captain Potato" autocomplete="off">
+      <button id="create-button" class="primary">Create a room</button>
+      <div class="divider">or join a friend</div>
+      <div class="row">
+        <input id="code-input" maxlength="4" placeholder="CODE" autocomplete="off" class="code-input">
+        <button id="join-button">Join</button>
+      </div>
+    </section>
+
+    <!-- Lobby: wait for friends -->
+    <section id="lobby-screen" class="card hidden">
+      <p>Room code</p>
+      <div class="room-code" id="lobby-code"></div>
+      <button id="copy-link-button" class="link-button">Copy invite link</button>
+      <h2>Players (<span id="lobby-count"></span>)</h2>
+      <ul id="lobby-players" class="player-list"></ul>
+      <button id="start-button" class="primary hidden">Start game</button>
+      <p id="lobby-hint" class="hint"></p>
+    </section>
+
+    <!-- Game -->
+    <section id="game-screen" class="hidden">
+      <div class="card word-card">
+        <div>
+          <div class="hint">Your secret word</div>
+          <div class="secret-word" id="secret-word"></div>
+        </div>
+        <div class="status">
+          <div id="phase-label" class="phase-label"></div>
+          <div id="timer" class="timer"></div>
+        </div>
+      </div>
+
+      <div class="game-layout">
+        <div class="card chat-card">
+          <ul id="messages" class="messages"></ul>
+          <form id="chat-form" class="row">
+            <input id="chat-input" maxlength="120" autocomplete="off">
+            <button id="chat-send" type="submit" class="primary">Send</button>
+          </form>
+        </div>
+
+        <div class="card side-card">
+          <h2 id="side-title">Players</h2>
+          <ul id="game-players" class="player-list"></ul>
+          <div id="gameover-box" class="hidden">
+            <div id="winner-text" class="winner-text"></div>
+            <p id="words-text"></p>
+            <button id="play-again-button" class="primary hidden">Play again</button>
+            <p id="play-again-hint" class="hint"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+</html>

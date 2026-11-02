@@ -1,0 +1,16 @@
+{
+  "name": "who-is-imposter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A funny multiplayer party game: find the imposter with the different word.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.1"
+  }
+}

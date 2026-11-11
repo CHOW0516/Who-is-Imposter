@@ -9,41 +9,71 @@
 <body>
   <main class="app">
     <header class="top-bar">
-      <h1>🕵️ Who is the Imposter?</h1>
-      <button id="leave-button" class="link-button hidden">Leave</button>
+      <h1 data-i18n="title"></h1>
+      <div class="top-actions">
+        <button id="language-button" class="pill-button"></button>
+        <button id="leave-button" class="pill-button hidden" data-i18n="leave"></button>
+      </div>
     </header>
 
     <div id="error-box" class="error hidden"></div>
 
-    <!-- Home: create or join a room -->
-    <section id="home-screen" class="card">
-      <p class="intro">Everyone gets the same secret word, except one sneaky imposter. Give funny clues, then vote out the imposter!</p>
-      <label for="name-input">Your nickname</label>
-      <input id="name-input" maxlength="16" placeholder="e.g. Captain Potato" autocomplete="off">
-      <button id="create-button" class="primary">Create a room</button>
-      <div class="divider">or join a friend</div>
+    <!-- Home: pick avatar + name, then create or join a room -->
+    <section id="home-screen" class="card narrow">
+      <p class="intro" data-i18n="intro"></p>
+
+      <div class="avatar-setup">
+        <div id="my-avatar-preview"></div>
+        <div>
+          <label data-i18n="pickAvatar"></label>
+          <button id="upload-button" class="pill-button" data-i18n="uploadPhoto"></button>
+          <input id="photo-input" type="file" accept="image/*" class="hidden">
+        </div>
+      </div>
+      <div id="avatar-grid" class="avatar-grid"></div>
+
+      <label for="name-input" data-i18n="nickname"></label>
+      <input id="name-input" maxlength="16" autocomplete="off" data-i18n-placeholder="nicknamePlaceholder">
+      <button id="create-button" class="primary wide" data-i18n="createRoom"></button>
+      <div class="divider" data-i18n="orJoin"></div>
       <div class="row">
         <input id="code-input" maxlength="4" placeholder="CODE" autocomplete="off" class="code-input">
-        <button id="join-button">Join</button>
+        <button id="join-button" class="primary" data-i18n="join"></button>
       </div>
     </section>
 
     <!-- Lobby: wait for friends -->
-    <section id="lobby-screen" class="card hidden">
-      <p>Room code</p>
+    <section id="lobby-screen" class="card narrow hidden">
+      <p class="center muted" data-i18n="roomCode"></p>
       <div class="room-code" id="lobby-code"></div>
-      <button id="copy-link-button" class="link-button">Copy invite link</button>
-      <h2>Players (<span id="lobby-count"></span>)</h2>
-      <ul id="lobby-players" class="player-list"></ul>
-      <button id="start-button" class="primary hidden">Start game</button>
-      <p id="lobby-hint" class="hint"></p>
+      <div class="center">
+        <button id="copy-link-button" class="pill-button" data-i18n="copyLink"></button>
+      </div>
+
+      <div class="word-language">
+        <span data-i18n="wordLanguage"></span>
+        <div class="toggle">
+          <button data-word-language="en">English</button>
+          <button data-word-language="zh">中文</button>
+        </div>
+      </div>
+
+      <div class="players-box">
+        <div id="lobby-players" class="players-row"></div>
+      </div>
+      <button id="start-button" class="primary wide hidden" data-i18n="startGame"></button>
+      <p id="lobby-hint" class="center muted"></p>
     </section>
 
     <!-- Game -->
     <section id="game-screen" class="hidden">
-      <div class="card word-card">
+      <div class="players-box">
+        <div id="game-players" class="players-row"></div>
+      </div>
+
+      <div class="word-bar">
         <div>
-          <div class="hint">Your secret word</div>
+          <div class="muted small" data-i18n="yourWord"></div>
           <div class="secret-word" id="secret-word"></div>
         </div>
         <div class="status">
@@ -52,25 +82,22 @@
         </div>
       </div>
 
-      <div class="game-layout">
-        <div class="card chat-card">
-          <ul id="messages" class="messages"></ul>
-          <form id="chat-form" class="row">
-            <input id="chat-input" maxlength="120" autocomplete="off">
-            <button id="chat-send" type="submit" class="primary">Send</button>
-          </form>
-        </div>
+      <div id="gameover-box" class="card gameover hidden">
+        <div id="winner-text" class="winner-text"></div>
+        <p id="words-text"></p>
+        <ol id="scoreboard" class="scoreboard"></ol>
+        <button id="play-again-button" class="primary wide hidden" data-i18n="playAgain"></button>
+        <p id="play-again-hint" class="center muted"></p>
+      </div>
 
-        <div class="card side-card">
-          <h2 id="side-title">Players</h2>
-          <ul id="game-players" class="player-list"></ul>
-          <div id="gameover-box" class="hidden">
-            <div id="winner-text" class="winner-text"></div>
-            <p id="words-text"></p>
-            <button id="play-again-button" class="primary hidden">Play again</button>
-            <p id="play-again-hint" class="hint"></p>
-          </div>
-        </div>
+      <div class="chat">
+        <ul id="messages" class="messages"></ul>
+        <div id="sticker-panel" class="sticker-panel hidden"></div>
+        <form id="chat-form" class="chat-bar">
+          <button id="sticker-button" type="button" class="sticker-toggle" aria-label="Stickers">😜</button>
+          <input id="chat-input" maxlength="120" autocomplete="off">
+          <button id="chat-send" type="submit" class="primary" data-i18n="send"></button>
+        </form>
       </div>
     </section>
   </main>

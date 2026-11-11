@@ -12,28 +12,23 @@ const VOTE_SECONDS = 60;
 const REVEAL_SECONDS = 8;
 const MAX_NAME_LENGTH = 16;
 const MAX_MESSAGE_LENGTH = 120;
-const REACTION_EMOJIS = ["😂", "🤔", "👀", "🤡"];
+const MAX_PHOTO_LENGTH = 20000; // a 64x64 JPEG is usually 2-5 KB
+const STICKER_COOLDOWN_MS = 1500;
+const LANGUAGES = ["en", "zh"];
 
-const ELIMINATION_LINES = [
-  "{name} has been yeeted out of the group chat.",
-  "{name} was escorted out by security.",
-  "{name} packed their bags and cried a little.",
-  "{name} got voted off faster than a bad haircut.",
-  "{name} is now a ghost. Spooky.",
-  "{name} has left the chat. Nobody waved.",
-  "Bye {name}! Don't let the door hit you.",
+// Keep these lists the same as in public/client.js
+const REACTION_EMOJIS = ["😂", "🤔", "👀", "🤡"];
+const AVATAR_EMOJIS = [
+  "🐷", "🐸", "🐵", "🐔", "🐶", "🐱", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁",
+  "🐮", "🐙", "🦄", "🐲", "👽", "🤡", "💩", "👻", "🤖", "🎃", "🥔", "🍑",
 ];
-const TIE_LINES = [
-  "It's a tie! Nobody goes home. Everyone is still suspicious.",
-  "Tie vote! You all argued and achieved nothing.",
-  "Nobody was voted out. The imposter is laughing somewhere.",
+const STICKERS = [
+  "😂", "🤣", "😭", "😱", "🤔", "🧐", "🤨", "😏", "🙄", "😳",
+  "🤡", "💀", "👀", "🫠", "😈", "🤥", "🙈", "💩", "🔥", "👍",
 ];
-const FROZE_LINES = [
-  "...forgot how words work 😶",
-  "...stared at the screen in silence",
-  "...is buffering 🔄",
-  "...was too busy eating snacks",
-];
+
+// How many funny variants each message has (the text lives in public/client.js)
+const VARIANT_COUNTS = { froze: 4, eliminated: 7, tie: 3 };
 
 // ---------- Static file server (no framework needed) ----------
 
@@ -78,6 +73,10 @@ function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+function randomVariant(key) {
+  return Math.floor(Math.random() * VARIANT_COUNTS[key]);
+}
+
 function shuffle(list) {
   const copy = [...list];
   for (let index = copy.length - 1; index > 0; index--) {
@@ -101,6 +100,16 @@ function cleanText(text, maxLength) {
   return String(text || "").replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
+// An avatar is either one of our emojis or a small JPEG photo made by the page.
+function cleanAvatar(avatar) {
+  if (AVATAR_EMOJIS.includes(avatar)) return avatar;
+  const isSmallJpeg =
+    typeof avatar === "string" &&
+    avatar.length <= MAX_PHOTO_LENGTH &&
+    /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(avatar);
+  return isSmallJpeg ? avatar : pickRandom(AVATAR_EMOJIS);
+}
+
 function alivePlayers(room) {
   return room.players.filter((player) => player.alive);
 }
@@ -109,8 +118,14 @@ function findPlayer(room, playerId) {
   return room.players.find((player) => player.id === playerId);
 }
 
-function addSystemMessage(room, text) {
-  room.messages.push({ id: room.nextMessageId++, type: "system", text });
+// System messages are sent as a key + params, so each player sees them in their own language.
+function addSystemMessage(room, key, params = {}) {
+  room.messages.push({ id: room.nextMessageId++, type: "system", key, params });
+  trimMessages(room);
+}
+
+function addPlayerMessage(room, player, fields) {
+  room.messages.push({ id: room.nextMessageId++, playerId: player.id, playerName: player.name, ...fields });
   trimMessages(room);
 }
 
@@ -140,6 +155,7 @@ function sendState(room) {
       roomCode: room.code,
       phase: room.phase,
       round: room.round,
+      wordLanguage: room.wordLanguage,
       hostId: room.hostId,
       yourId: player.id,
       yourWord: room.phase === "lobby" ? null : isImposter ? room.imposterWord : room.civilianWord,
@@ -148,6 +164,7 @@ function sendState(room) {
       players: room.players.map((otherPlayer) => ({
         id: otherPlayer.id,
         name: otherPlayer.name,
+        avatar: otherPlayer.avatar,
         alive: otherPlayer.alive,
         connected: Boolean(otherPlayer.socketId),
         score: otherPlayer.score,
@@ -155,7 +172,6 @@ function sendState(room) {
       })),
       yourVote: room.votes.get(player.id) || null,
       messages: room.messages,
-      lastResult: room.lastResult,
       // Only revealed at the end of the game
       reveal: gameOver
         ? {
@@ -172,17 +188,16 @@ function sendState(room) {
 // ---------- Game flow ----------
 
 function startGame(room) {
-  const [firstWord, secondWord] = pickRandom(WORD_PAIRS);
+  const [firstWord, secondWord] = pickRandom(WORD_PAIRS[room.wordLanguage]);
   const swap = Math.random() < 0.5;
   room.civilianWord = swap ? secondWord : firstWord;
   room.imposterWord = swap ? firstWord : secondWord;
   room.imposterId = pickRandom(room.players).id;
   room.round = 0;
   room.winner = null;
-  room.lastResult = null;
   room.messages = [];
   for (const player of room.players) player.alive = true;
-  addSystemMessage(room, "Game started! Check your secret word. One of you has a different word...");
+  addSystemMessage(room, "gameStarted");
   startClueRound(room);
 }
 
@@ -192,7 +207,7 @@ function startClueRound(room) {
   room.votes = new Map();
   room.speakingOrder = shuffle(alivePlayers(room).map((player) => player.id));
   room.speakerIndex = -1;
-  addSystemMessage(room, `Round ${room.round}: describe your word in one funny clue. Don't make it too obvious!`);
+  addSystemMessage(room, "roundStart", { round: room.round });
   nextSpeaker(room);
 }
 
@@ -212,7 +227,7 @@ function nextSpeaker(room) {
   const speakerId = room.speakingOrder[room.speakerIndex];
   setTimer(room, CLUE_SECONDS, () => {
     const speaker = findPlayer(room, speakerId);
-    if (speaker) addSystemMessage(room, `${speaker.name} ${pickRandom(FROZE_LINES)}`);
+    if (speaker) addSystemMessage(room, "froze", { name: speaker.name, variant: randomVariant("froze") });
     nextSpeaker(room);
     sendState(room);
   });
@@ -221,7 +236,7 @@ function nextSpeaker(room) {
 function startVoting(room) {
   room.phase = "voting";
   room.votes = new Map();
-  addSystemMessage(room, "Time to vote! Who is the imposter? You can chat while you vote.");
+  addSystemMessage(room, "votingStart");
   setTimer(room, VOTE_SECONDS, () => {
     finishVoting(room);
     sendState(room);
@@ -244,19 +259,16 @@ function finishVoting(room) {
   const topTargets = [...voteCounts.entries()].filter(([, count]) => count === highestCount);
 
   if (highestCount === 0 || topTargets.length > 1) {
-    room.lastResult = { eliminatedId: null, text: pickRandom(TIE_LINES) };
+    addSystemMessage(room, "tie", { variant: randomVariant("tie") });
   } else {
     const eliminated = findPlayer(room, topTargets[0][0]);
     eliminated.alive = false;
-    const wasImposter = eliminated.id === room.imposterId;
-    room.lastResult = {
-      eliminatedId: eliminated.id,
-      text:
-        pickRandom(ELIMINATION_LINES).replace("{name}", eliminated.name) +
-        (wasImposter ? " They WERE the imposter! 🎉" : " They were NOT the imposter. Oops. 😬"),
-    };
+    addSystemMessage(room, "eliminated", {
+      name: eliminated.name,
+      variant: randomVariant("eliminated"),
+      wasImposter: eliminated.id === room.imposterId,
+    });
   }
-  addSystemMessage(room, room.lastResult.text);
 
   room.phase = "reveal";
   setTimer(room, REVEAL_SECONDS, () => {
@@ -288,20 +300,14 @@ function endGame(room, winner) {
     if (winner === "imposter" && isImposter) player.score += 3;
     if (winner === "civilians" && !isImposter) player.score += 1;
   }
-  const imposterName = findPlayer(room, room.imposterId)?.name || "Someone";
-  addSystemMessage(
-    room,
-    winner === "imposter"
-      ? `The imposter ${imposterName} fooled everyone! 😈`
-      : `The players win! ${imposterName} was the imposter. 🎉`
-  );
+  const imposterName = findPlayer(room, room.imposterId)?.name || "?";
+  addSystemMessage(room, winner === "imposter" ? "imposterWins" : "playersWin", { name: imposterName });
 }
 
 function backToLobby(room) {
   clearTimer(room);
   room.phase = "lobby";
   room.imposterId = null;
-  room.lastResult = null;
   room.winner = null;
   room.votes = new Map();
   room.messages = [];
@@ -310,13 +316,14 @@ function backToLobby(room) {
   for (const player of room.players) player.alive = true;
 }
 
-function createRoom() {
+function createRoom(wordLanguage) {
   const room = {
     code: createRoomCode(),
     hostId: null,
     players: [],
     phase: "lobby",
     round: 0,
+    wordLanguage: LANGUAGES.includes(wordLanguage) ? wordLanguage : "en",
     civilianWord: null,
     imposterWord: null,
     imposterId: null,
@@ -325,7 +332,6 @@ function createRoom() {
     votes: new Map(),
     messages: [],
     nextMessageId: 1,
-    lastResult: null,
     winner: null,
     timer: null,
     deadline: null,
@@ -362,11 +368,16 @@ io.on("connection", (socket) => {
   let currentRoom = null;
   let currentPlayer = null;
 
-  function joinRoom(room, playerId, rawName) {
+  // Errors are sent as keys so the page can show them in the player's language.
+  function sendError(key, params = {}) {
+    socket.emit("errorMessage", { key, params });
+  }
+
+  function joinRoom(room, playerId, rawName, rawAvatar) {
     const name = cleanText(rawName, MAX_NAME_LENGTH);
-    if (!name) return socket.emit("errorMessage", "Please enter a nickname.");
+    if (!name) return sendError("needName");
     const safePlayerId = cleanText(playerId, 40);
-    if (!safePlayerId) return socket.emit("errorMessage", "Something went wrong. Refresh the page.");
+    if (!safePlayerId) return sendError("refresh");
 
     // Same browser coming back (refresh or lost connection)
     let player = findPlayer(room, safePlayerId);
@@ -376,11 +387,11 @@ io.on("connection", (socket) => {
       }
       player.socketId = socket.id;
     } else {
-      if (room.phase !== "lobby") return socket.emit("errorMessage", "This game already started. Wait for the next one!");
-      if (room.players.length >= MAX_PLAYERS) return socket.emit("errorMessage", "This room is full.");
+      if (room.phase !== "lobby") return sendError("alreadyStarted");
+      if (room.players.length >= MAX_PLAYERS) return sendError("roomFull");
       const nameTaken = room.players.some((otherPlayer) => otherPlayer.name.toLowerCase() === name.toLowerCase());
-      if (nameTaken) return socket.emit("errorMessage", "That nickname is taken in this room.");
-      player = { id: safePlayerId, name, socketId: socket.id, alive: true, score: 0 };
+      if (nameTaken) return sendError("nameTaken");
+      player = { id: safePlayerId, name, avatar: cleanAvatar(rawAvatar), socketId: socket.id, alive: true, score: 0 };
       room.players.push(player);
     }
     if (!room.hostId) room.hostId = player.id;
@@ -391,28 +402,34 @@ io.on("connection", (socket) => {
     sendState(room);
   }
 
-  socket.on("createRoom", ({ playerId, name } = {}) => {
+  socket.on("createRoom", ({ playerId, name, avatar, wordLanguage } = {}) => {
     if (currentRoom) return;
-    if (!cleanText(name, MAX_NAME_LENGTH)) return socket.emit("errorMessage", "Please enter a nickname.");
-    const room = createRoom();
-    joinRoom(room, playerId, name);
+    if (!cleanText(name, MAX_NAME_LENGTH)) return sendError("needName");
+    const room = createRoom(wordLanguage);
+    joinRoom(room, playerId, name, avatar);
     if (!currentRoom) rooms.delete(room.code);
   });
 
-  socket.on("joinRoom", ({ roomCode, playerId, name } = {}) => {
+  socket.on("joinRoom", ({ roomCode, playerId, name, avatar } = {}) => {
     if (currentRoom) return;
     const room = rooms.get(cleanText(roomCode, 4).toUpperCase());
-    if (!room) return socket.emit("errorMessage", "Room not found. Check the code.");
-    joinRoom(room, playerId, name);
+    if (!room) return sendError("roomNotFound");
+    joinRoom(room, playerId, name, avatar);
+  });
+
+  socket.on("setWordLanguage", (wordLanguage) => {
+    const room = currentRoom;
+    if (!room || room.hostId !== currentPlayer.id || room.phase !== "lobby") return;
+    if (!LANGUAGES.includes(wordLanguage)) return;
+    room.wordLanguage = wordLanguage;
+    sendState(room);
   });
 
   socket.on("startGame", () => {
     const room = currentRoom;
     if (!room || room.hostId !== currentPlayer.id || room.phase !== "lobby") return;
     const connectedCount = room.players.filter((player) => player.socketId).length;
-    if (connectedCount < MIN_PLAYERS) {
-      return socket.emit("errorMessage", `You need at least ${MIN_PLAYERS} players to start.`);
-    }
+    if (connectedCount < MIN_PLAYERS) return sendError("needPlayers", { min: MIN_PLAYERS });
     room.players = room.players.filter((player) => player.socketId);
     startGame(room);
     sendState(room);
@@ -427,28 +444,23 @@ io.on("connection", (socket) => {
     if (room.phase === "clues") {
       // During clue time only the current speaker can type, and that message is their clue.
       if (room.speakingOrder[room.speakerIndex] !== currentPlayer.id) return;
-      room.messages.push({
-        id: room.nextMessageId++,
-        type: "clue",
-        playerId: currentPlayer.id,
-        playerName: currentPlayer.name,
-        text,
-        reactions: {},
-      });
-      trimMessages(room);
+      addPlayerMessage(room, currentPlayer, { type: "clue", text, reactions: {} });
       nextSpeaker(room);
     } else {
       // Dead players can still chat (as ghosts), it adds to the fun.
-      room.messages.push({
-        id: room.nextMessageId++,
-        type: "chat",
-        playerId: currentPlayer.id,
-        playerName: currentPlayer.name,
-        text,
-        reactions: {},
-      });
-      trimMessages(room);
+      addPlayerMessage(room, currentPlayer, { type: "chat", text, reactions: {} });
     }
+    sendState(room);
+  });
+
+  // Stickers can be sent any time (even during someone else's clue), but not too fast.
+  socket.on("sendSticker", (sticker) => {
+    const room = currentRoom;
+    if (!room || !STICKERS.includes(sticker)) return;
+    const now = Date.now();
+    if (now - (currentPlayer.lastStickerAt || 0) < STICKER_COOLDOWN_MS) return;
+    currentPlayer.lastStickerAt = now;
+    addPlayerMessage(room, currentPlayer, { type: "sticker", sticker });
     sendState(room);
   });
 

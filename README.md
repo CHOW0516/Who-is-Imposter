@@ -13,6 +13,11 @@ Everyone gets the same secret word, except one imposter who gets a similar but d
 5. The player with the most votes is out. A tie means nobody goes out.
 6. **The players win** when the imposter is voted out. **The imposter wins** when only 2 players are left.
 
+Extras:
+- Pick a funny emoji avatar or use your own photo (it's shrunk to a tiny 64x64 picture).
+- Send big emoji stickers any time with the 😜 button, even during someone else's turn.
+- Switch the page between English and 中文 with the button at the top. The host picks whether the secret words are English or Chinese in the lobby.
+
 Scores: each player gets +1 when the players win, and the imposter gets +3 when they win. Scores stay across games in the same room.
 
 ## Run it on your computer
@@ -40,10 +45,10 @@ Note: free Render servers sleep after 15 minutes without visitors, so the first 
 
 ## Add your own word pairs
 
-Edit `words.js` and add a line like `["Word for players", "Word for imposter"],`. Which word goes to the imposter is picked at random each game.
+Edit `words.js` and add a line like `["Word for players", "Word for imposter"],` to `ENGLISH_PAIRS` or `CHINESE_PAIRS`. Which word goes to the imposter is picked at random each game.
 
 ## Files
 
 - `server.js`: the game server (rooms, turns, voting, timers)
-- `words.js`: the list of funny word pairs
-- `public/`: the web page (`index.html`, `style.css`, `client.js`)
+- `words.js`: the funny word pairs (English and Chinese)
+- `public/`: the web page (`index.html`, `style.css`, `client.js`). All page text in both languages is at the top of `client.js`.

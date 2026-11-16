@@ -1,6 +1,7 @@
 // Each pair has two similar-but-different words.
 // One word goes to the normal players, the other to the imposter (picked at random).
-// The host picks the word language (English or Chinese) in the lobby.
+// The host picks the word language (English or Chinese) in the lobby,
+// and can turn the "gross words" pairs on or off.
 const ENGLISH_PAIRS = [
   ["Pizza", "Burger"],
   ["Ex", "Ghost"],
@@ -198,6 +199,76 @@ const CHINESE_PAIRS = [
   ["厨师", "疯狂科学家"],
 ];
 
-const WORD_PAIRS = { en: ENGLISH_PAIRS, zh: CHINESE_PAIRS };
+// Toilet humour and other silly pairs (the "💩 Gross words" switch in the lobby)
+const ENGLISH_GROSS_PAIRS = [
+  ["Shit", "Durian"],
+  ["Pee", "Chrysanthemum Tea"],
+  ["Fart", "Perfume"],
+  ["Booger", "Gummy Bear"],
+  ["Earwax", "Honey"],
+  ["Armpit", "Cheese"],
+  ["Vomit", "Porridge"],
+  ["Toilet Water", "Soup"],
+  ["Toe Nail", "Potato Chip"],
+  ["Dandruff", "Parmesan"],
+  ["Burp", "Opera Singer"],
+  ["Diarrhea", "Chocolate Milk"],
+  ["Poop Emoji", "Ice Cream Swirl"],
+  ["Smelly Socks", "Blue Cheese"],
+  ["Spit", "Bubble Tea Pearl"],
+  ["Pimple", "Volcano"],
+  ["Snot", "Slime"],
+  ["Sweat", "Lemonade"],
+  ["Hairball", "Meatball"],
+  ["Morning Breath", "Garlic Bread"],
+  ["Toilet Paper", "Wedding Dress"],
+  ["Bedwetting", "Waterbed"],
+  ["Hairy Back", "Carpet"],
+  ["Belly Button Fluff", "Cotton Candy"],
+  ["Public Toilet", "Haunted House"],
+  ["Sumo Diaper", "Gift Wrap"],
+  ["Plunger", "Microphone"],
+  ["Gas Station Sushi", "Lottery Ticket"],
+  ["Dirty Laundry", "Treasure Chest"],
+  ["Sewer", "Water Park"],
+];
+
+const CHINESE_GROSS_PAIRS = [
+  ["屎", "榴莲"],
+  ["尿", "菊花茶"],
+  ["屁", "香水"],
+  ["鼻屎", "软糖"],
+  ["耳屎", "蜂蜜"],
+  ["胳肢窝", "芝士"],
+  ["呕吐物", "稀饭"],
+  ["马桶水", "汤"],
+  ["脚指甲", "薯片"],
+  ["头皮屑", "芝士粉"],
+  ["打嗝", "唱歌"],
+  ["拉肚子", "巧克力牛奶"],
+  ["臭袜子", "蓝纹奶酪"],
+  ["口水", "珍珠"],
+  ["痘痘", "火山"],
+  ["鼻涕", "史莱姆"],
+  ["汗", "柠檬水"],
+  ["口臭", "大蒜面包"],
+  ["卫生纸", "婚纱"],
+  ["尿床", "水床"],
+  ["背毛", "地毯"],
+  ["肚脐眼", "存钱罐"],
+  ["公共厕所", "鬼屋"],
+  ["马桶塞", "麦克风"],
+  ["脏衣服", "宝箱"],
+  ["下水道", "水上乐园"],
+  ["臭豆腐", "螺蛳粉"],
+  ["猪大肠", "粉肠"],
+  ["脚气", "辣条"],
+  ["痰盂", "奖杯"],
+];
+
+const WORD_PAIRS = {
+  en: { normal: ENGLISH_PAIRS, gross: ENGLISH_GROSS_PAIRS },
+  zh: { normal: CHINESE_PAIRS, gross: CHINESE_GROSS_PAIRS },
+};
 
 module.exports = { WORD_PAIRS };

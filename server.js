@@ -16,6 +16,15 @@ const MAX_PHOTO_LENGTH = 20000; // a 64x64 JPEG is usually 2-5 KB
 const STICKER_COOLDOWN_MS = 1500;
 const LANGUAGES = ["en", "zh"];
 
+// Whiteboard: a player with no word who gets one more letter each round (5+ players only)
+const WHITEBOARD_MIN_PLAYERS = 5;
+
+// Imposter superpowers: 1 per round, 3 per game
+const POWERS = ["glitch", "mosaic", "speed", "flip"];
+const POWERS_PER_GAME = 3;
+const POWER_SECONDS = 15;
+const SPEED_CLUE_SECONDS = 10;
+
 // Keep these lists the same as in public/client.js
 const REACTION_EMOJIS = ["😂", "🤔", "👀", "🤡"];
 const AVATAR_EMOJIS = [
@@ -29,6 +38,18 @@ const STICKERS = [
 
 // How many funny variants each message has (the text lives in public/client.js)
 const VARIANT_COUNTS = { froze: 4, eliminated: 7, tie: 3 };
+
+// Glitch: shuffle the letters inside each word, e.g. "cold drink" -> "lcod nkdir"
+function scramble(text) {
+  return text
+    .split(" ")
+    .map((word) => shuffle(Array.from(word)).join(""))
+    .join(" ");
+}
+
+function normalizeWord(word) {
+  return String(word || "").toLowerCase().replace(/\s+/g, "");
+}
 
 // ---------- Static file server (no framework needed) ----------
 
@@ -151,14 +172,27 @@ function sendState(room) {
   for (const player of room.players) {
     if (!player.socketId) continue;
     const isImposter = player.id === room.imposterId;
+    const isWhiteboard = player.id === room.whiteboardId;
+    const inGame = room.phase !== "lobby";
+    let yourRole = null;
+    if (inGame) yourRole = isImposter ? "imposter" : isWhiteboard ? "whiteboard" : "player";
     io.to(player.socketId).emit("state", {
       roomCode: room.code,
       phase: room.phase,
       round: room.round,
       wordLanguage: room.wordLanguage,
+      grossWords: room.grossWords,
       hostId: room.hostId,
       yourId: player.id,
-      yourWord: room.phase === "lobby" ? null : isImposter ? room.imposterWord : room.civilianWord,
+      yourRole,
+      yourWord: !inGame || isWhiteboard ? null : isImposter ? room.imposterWord : room.civilianWord,
+      whiteboardHint: inGame && isWhiteboard ? whiteboardHint(room) : null,
+      canGuess: isWhiteboard && player.alive && !room.whiteboardGuessed && ["clues", "voting"].includes(room.phase),
+      powersLeft: isImposter ? room.powersLeft : null,
+      canUsePower: isImposter && canUsePower(room, player),
+      yourEffects: Object.fromEntries(
+        Object.entries(player.effects || {}).filter(([, until]) => until > Date.now())
+      ),
       currentSpeakerId: room.phase === "clues" ? room.speakingOrder[room.speakerIndex] : null,
       deadline: room.deadline,
       players: room.players.map((otherPlayer) => ({
@@ -176,6 +210,7 @@ function sendState(room) {
       reveal: gameOver
         ? {
             imposterId: room.imposterId,
+            whiteboardId: room.whiteboardId,
             civilianWord: room.civilianWord,
             imposterWord: room.imposterWord,
             winner: room.winner,
@@ -188,16 +223,35 @@ function sendState(room) {
 // ---------- Game flow ----------
 
 function startGame(room) {
-  const [firstWord, secondWord] = pickRandom(WORD_PAIRS[room.wordLanguage]);
+  const wordPool = WORD_PAIRS[room.wordLanguage];
+  const pairs = room.grossWords ? [...wordPool.normal, ...wordPool.gross] : wordPool.normal;
+  const [firstWord, secondWord] = pickRandom(pairs);
   const swap = Math.random() < 0.5;
   room.civilianWord = swap ? secondWord : firstWord;
   room.imposterWord = swap ? firstWord : secondWord;
   room.imposterId = pickRandom(room.players).id;
+  room.whiteboardId = null;
+  if (room.players.length >= WHITEBOARD_MIN_PLAYERS) {
+    room.whiteboardId = pickRandom(room.players.filter((player) => player.id !== room.imposterId)).id;
+  }
+  // The Whiteboard gets the letters in a random order, one more each round (spaces are free)
+  room.letterOrder = shuffle(
+    Array.from(room.civilianWord)
+      .map((character, index) => (character === " " ? null : index))
+      .filter((index) => index !== null)
+  );
+  room.whiteboardGuessed = false;
+  room.powersLeft = POWERS_PER_GAME;
+  room.powerUsedRound = 0;
   room.round = 0;
   room.winner = null;
   room.messages = [];
-  for (const player of room.players) player.alive = true;
-  addSystemMessage(room, "gameStarted");
+  for (const player of room.players) {
+    player.alive = true;
+    player.effects = {};
+    player.speedUp = false;
+  }
+  addSystemMessage(room, "gameStarted", { hasWhiteboard: Boolean(room.whiteboardId) });
   startClueRound(room);
 }
 
@@ -225,12 +279,44 @@ function nextSpeaker(room) {
     return;
   }
   const speakerId = room.speakingOrder[room.speakerIndex];
-  setTimer(room, CLUE_SECONDS, () => {
+  const speaker = findPlayer(room, speakerId);
+  const seconds = speaker.speedUp ? SPEED_CLUE_SECONDS : CLUE_SECONDS;
+  speaker.speedUp = false;
+  startSpeakerTimer(room, speakerId, seconds);
+}
+
+function startSpeakerTimer(room, speakerId, seconds) {
+  setTimer(room, seconds, () => {
     const speaker = findPlayer(room, speakerId);
     if (speaker) addSystemMessage(room, "froze", { name: speaker.name, variant: randomVariant("froze") });
     nextSpeaker(room);
     sendState(room);
   });
+}
+
+function whiteboardHint(room) {
+  const characters = Array.from(room.civilianWord);
+  const revealed = new Set(room.letterOrder.slice(0, room.round));
+  return characters.map((character, index) => (character === " " || revealed.has(index) ? character : "_")).join("");
+}
+
+function canUsePower(room, player) {
+  return (
+    player.alive &&
+    ["clues", "voting"].includes(room.phase) &&
+    room.powersLeft > 0 &&
+    room.powerUsedRound !== room.round
+  );
+}
+
+// If too few players are left after someone drops out mid-round, end the game now.
+function endIfImposterWins(room) {
+  const aliveAndConnected = alivePlayers(room).filter((player) => player.socketId);
+  if (aliveAndConnected.length <= 2) {
+    endGame(room, "imposter");
+    return true;
+  }
+  return false;
 }
 
 function startVoting(room) {
@@ -299,21 +385,30 @@ function endGame(room, winner) {
     const isImposter = player.id === room.imposterId;
     if (winner === "imposter" && isImposter) player.score += 3;
     if (winner === "civilians" && !isImposter) player.score += 1;
+    if (winner === "whiteboard" && player.id === room.whiteboardId) player.score += 4;
   }
   const imposterName = findPlayer(room, room.imposterId)?.name || "?";
-  addSystemMessage(room, winner === "imposter" ? "imposterWins" : "playersWin", { name: imposterName });
+  if (winner === "whiteboard") {
+    addSystemMessage(room, "whiteboardWins", { name: findPlayer(room, room.whiteboardId)?.name || "?" });
+  } else {
+    addSystemMessage(room, winner === "imposter" ? "imposterWins" : "playersWin", { name: imposterName });
+  }
 }
 
 function backToLobby(room) {
   clearTimer(room);
   room.phase = "lobby";
   room.imposterId = null;
+  room.whiteboardId = null;
   room.winner = null;
   room.votes = new Map();
   room.messages = [];
   // Drop players who left during the game
   room.players = room.players.filter((player) => player.socketId);
-  for (const player of room.players) player.alive = true;
+  for (const player of room.players) {
+    player.alive = true;
+    player.effects = {};
+  }
 }
 
 function createRoom(wordLanguage) {
@@ -324,6 +419,12 @@ function createRoom(wordLanguage) {
     phase: "lobby",
     round: 0,
     wordLanguage: LANGUAGES.includes(wordLanguage) ? wordLanguage : "en",
+    grossWords: true,
+    whiteboardId: null,
+    letterOrder: [],
+    whiteboardGuessed: false,
+    powersLeft: 0,
+    powerUsedRound: 0,
     civilianWord: null,
     imposterWord: null,
     imposterId: null,
@@ -425,6 +526,68 @@ io.on("connection", (socket) => {
     sendState(room);
   });
 
+  socket.on("setGrossWords", (enabled) => {
+    const room = currentRoom;
+    if (!room || room.hostId !== currentPlayer.id || room.phase !== "lobby") return;
+    room.grossWords = Boolean(enabled);
+    sendState(room);
+  });
+
+  socket.on("usePower", ({ power, targetId } = {}) => {
+    const room = currentRoom;
+    if (!room || currentPlayer.id !== room.imposterId || !canUsePower(room, currentPlayer)) return;
+    if (!POWERS.includes(power)) return;
+    if (power === "speed" && room.phase !== "clues") return; // speed only makes sense during clues
+    const target = findPlayer(room, targetId);
+    if (!target || !target.alive || target.id === currentPlayer.id) return;
+
+    room.powersLeft -= 1;
+    room.powerUsedRound = room.round;
+    if (power === "speed") {
+      const isSpeakingNow = room.speakingOrder[room.speakerIndex] === target.id;
+      const secondsLeft = (room.deadline - Date.now()) / 1000;
+      if (isSpeakingNow) {
+        if (secondsLeft > SPEED_CLUE_SECONDS) startSpeakerTimer(room, target.id, SPEED_CLUE_SECONDS);
+      } else {
+        target.speedUp = true; // their next turn is short
+      }
+    } else {
+      target.effects = { ...target.effects, [power]: Date.now() + POWER_SECONDS * 1000 };
+      // Refresh everyone when the effect ends so the screen goes back to normal
+      setTimeout(() => sendState(room), POWER_SECONDS * 1000 + 100);
+    }
+    addSystemMessage(room, "powerUsed", { power, name: target.name });
+    sendState(room);
+  });
+
+  socket.on("guessWord", (rawGuess) => {
+    const room = currentRoom;
+    if (!room || currentPlayer.id !== room.whiteboardId || !currentPlayer.alive) return;
+    if (room.whiteboardGuessed || !["clues", "voting"].includes(room.phase)) return;
+    const guess = cleanText(rawGuess, 40);
+    if (!guess) return;
+    room.whiteboardGuessed = true;
+
+    if (normalizeWord(guess) === normalizeWord(room.civilianWord)) {
+      endGame(room, "whiteboard");
+    } else {
+      currentPlayer.alive = false;
+      // Votes for or from a knocked-out player no longer count
+      for (const [voterId, targetId] of room.votes) {
+        if (voterId === currentPlayer.id || targetId === currentPlayer.id) room.votes.delete(voterId);
+      }
+      addSystemMessage(room, "whiteboardWrong", { name: currentPlayer.name, guess });
+      if (!endIfImposterWins(room)) {
+        if (room.phase === "clues" && room.speakingOrder[room.speakerIndex] === currentPlayer.id) {
+          nextSpeaker(room);
+        } else if (room.phase === "voting" && everyoneVoted(room)) {
+          finishVoting(room);
+        }
+      }
+    }
+    sendState(room);
+  });
+
   socket.on("startGame", () => {
     const room = currentRoom;
     if (!room || room.hostId !== currentPlayer.id || room.phase !== "lobby") return;
@@ -438,8 +601,9 @@ io.on("connection", (socket) => {
   socket.on("sendMessage", (rawText) => {
     const room = currentRoom;
     if (!room) return;
-    const text = cleanText(rawText, MAX_MESSAGE_LENGTH);
+    let text = cleanText(rawText, MAX_MESSAGE_LENGTH);
     if (!text) return;
+    if ((currentPlayer.effects?.glitch || 0) > Date.now()) text = scramble(text);
 
     if (room.phase === "clues") {
       // During clue time only the current speaker can type, and that message is their clue.

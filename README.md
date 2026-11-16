@@ -2,7 +2,7 @@
 
 A funny online party game for 3 to 10 friends.
 
-Everyone gets the same secret word, except one imposter who gets a similar but different word (like "Pizza" vs "Burger"). The imposter doesn't know they are the imposter!
+Everyone gets the same secret word, except one imposter who gets a similar but different word (like "Pizza" vs "Burger"). The imposter knows they are the imposter and has superpowers to mess with everyone!
 
 ## How to play
 
@@ -13,12 +13,25 @@ Everyone gets the same secret word, except one imposter who gets a similar but d
 5. The player with the most votes is out. A tie means nobody goes out.
 6. **The players win** when the imposter is voted out. **The imposter wins** when only 2 players are left.
 
+### ⚡ Imposter superpowers
+The imposter can use 1 superpower per round (3 per game). Each one hits one player:
+- **👾 Glitch:** their screen shakes and flickers for 15 seconds, and the letters of anything they send get scrambled.
+- **🟫 Mosaic:** their chat goes blurry for 15 seconds.
+- **⏩ Time accelerate:** their clue timer drops to 10 seconds (only during clue time).
+- **🙃 Upside down:** their whole screen flips for 15 seconds.
+
+Everyone sees "Someone used Mosaic on Bob!" but not who did it.
+
+### 🫥 Whiteboard (5+ players)
+One player gets no word at all. Each round they see one more letter of the players' word (one character for Chinese words). Once per game they can tap **Guess the word**: a right guess wins the whole game for them (+4 points), a wrong guess knocks them out.
+
 Extras:
 - Pick a funny emoji avatar or use your own photo (it's shrunk to a tiny 64x64 picture).
 - Send big emoji stickers any time with the 😜 button, even during someone else's turn.
 - Switch the page between English and 中文 with the button at the top. The host picks whether the secret words are English or Chinese in the lobby.
+- The host can turn **💩 Gross words** on or off in the lobby (like "Shit" vs "Durian", "尿" vs "菊花茶").
 
-Scores: each player gets +1 when the players win, and the imposter gets +3 when they win. Scores stay across games in the same room.
+Scores: each player gets +1 when the players win, the imposter gets +3 when they win, and the Whiteboard gets +4 for a right guess. Scores stay across games in the same room.
 
 ## Run it on your computer
 
@@ -45,7 +58,7 @@ Note: free Render servers sleep after 15 minutes without visitors, so the first 
 
 ## Add your own word pairs
 
-Edit `words.js` and add a line like `["Word for players", "Word for imposter"],` to `ENGLISH_PAIRS` or `CHINESE_PAIRS`. Which word goes to the imposter is picked at random each game.
+Edit `words.js` and add a line like `["Word for players", "Word for imposter"],` to `ENGLISH_PAIRS` or `CHINESE_PAIRS` (or the `_GROSS_PAIRS` lists for the gross words switch). Which word goes to the imposter is picked at random each game.
 
 ## Files
 

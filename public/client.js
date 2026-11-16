@@ -10,6 +10,12 @@ const STICKERS = [
   "😂", "🤣", "😭", "😱", "🤔", "🧐", "🤨", "😏", "🙄", "😳",
   "🤡", "💀", "👀", "🫠", "😈", "🤥", "🙈", "💩", "🔥", "👍",
 ];
+const POWERS = [
+  { id: "glitch", icon: "👾" },
+  { id: "mosaic", icon: "🟫" },
+  { id: "speed", icon: "⏩" },
+  { id: "flip", icon: "🙃" },
+];
 const AVATAR_COLORS = ["#ffe0e9", "#e0f0ff", "#e6ffe0", "#fff3d6", "#efe0ff", "#d9fbf6", "#ffe8d6"];
 
 // ---------- Text in both languages ----------
@@ -32,6 +38,9 @@ const TEXT = {
     copied: "Copied!",
     copyPrompt: "Copy this link:",
     wordLanguage: "Word language",
+    grossWords: "💩 Gross words",
+    on: "On",
+    off: "Off",
     startGame: "Start game",
     needThree: "Need at least 3 players. Share the code with your friends!",
     hostStart: "Everyone here? Hit start!",
@@ -39,6 +48,24 @@ const TEXT = {
     yourWord: "Your secret word",
     playAgain: "Play again",
     send: "Send",
+    roleImposter: "😈 You are the IMPOSTER. Your word:",
+    roleWhiteboard: "🫥 You are the WHITEBOARD. Letters so far:",
+    powerButton: (left) => `⚡ Superpower (${left} left)`,
+    powerUsedThisRound: "⚡ Used this round",
+    pickPower: "1. Pick a superpower",
+    pickTarget: "2. Pick a victim",
+    powers: {
+      glitch: "Glitch: their screen shakes and their typing gets scrambled",
+      mosaic: "Mosaic: their chat turns blurry",
+      speed: "Time accelerate: their next clue gets only 10 seconds",
+      flip: "Upside down: their screen flips",
+    },
+    powerNames: { glitch: "Glitch", mosaic: "Mosaic", speed: "Time accelerate", flip: "Upside down" },
+    hitBy: (names) => `⚡ You got hit by ${names}!`,
+    guessWord: "🎯 Guess the word",
+    guessPrompt: "Guess the players' word. You only get ONE try. Wrong = you're out!",
+    whiteboardTag: "🫥 whiteboard",
+    whiteboardWinsTitle: "🫥 The Whiteboard wins!",
     you: "you",
     host: "host",
     round: (number) => `Round ${number}`,
@@ -77,7 +104,12 @@ const TEXT = {
       needPlayers: ({ min }) => `You need at least ${min} players to start.`,
     },
     system: {
-      gameStarted: () => "Game started! Check your secret word. One of you has a different word...",
+      gameStarted: ({ hasWhiteboard }) =>
+        "Game started! Check your secret word. One of you has a different word..." +
+        (hasWhiteboard ? " And someone has NO word at all 🫥" : ""),
+      powerUsed: ({ power, name }) => `⚡ Someone used ${TEXT.en.powerNames[power]} on ${name}!`,
+      whiteboardWrong: ({ name, guess }) => `🫥 ${name} guessed "${guess}"... WRONG! They're out.`,
+      whiteboardWins: ({ name }) => `🫥 ${name} the Whiteboard guessed the word and wins everything!`,
       roundStart: ({ round }) => `Round ${round}: describe your word in one funny clue. Don't make it too obvious!`,
       votingStart: () => "Time to vote! Who is the imposter? You can chat while you vote.",
       froze: [
@@ -123,6 +155,9 @@ const TEXT = {
     copied: "已复制！",
     copyPrompt: "复制这个链接：",
     wordLanguage: "词语语言",
+    grossWords: "💩 重口味词语",
+    on: "开",
+    off: "关",
     startGame: "开始游戏",
     needThree: "至少需要 3 个人。把房间号发给朋友吧！",
     hostStart: "人齐了吗？点开始！",
@@ -130,6 +165,24 @@ const TEXT = {
     yourWord: "你的秘密词",
     playAgain: "再来一局",
     send: "发送",
+    roleImposter: "😈 你是卧底！你的词：",
+    roleWhiteboard: "🫥 你是白板！目前的字：",
+    powerButton: (left) => `⚡ 超能力（剩 ${left} 次）`,
+    powerUsedThisRound: "⚡ 这轮已用过",
+    pickPower: "1. 选一个超能力",
+    pickTarget: "2. 选一个倒霉蛋",
+    powers: {
+      glitch: "故障：屏幕狂抖，打的字会乱掉",
+      mosaic: "马赛克：聊天内容变模糊",
+      speed: "时间加速：下次描述只有 10 秒",
+      flip: "颠倒：整个屏幕倒过来",
+    },
+    powerNames: { glitch: "故障", mosaic: "马赛克", speed: "时间加速", flip: "颠倒" },
+    hitBy: (names) => `⚡ 你中了「${names}」！`,
+    guessWord: "🎯 猜词",
+    guessPrompt: "猜猜平民的词。只有一次机会，猜错就出局！",
+    whiteboardTag: "🫥 白板",
+    whiteboardWinsTitle: "🫥 白板赢了！",
     you: "你",
     host: "房主",
     round: (number) => `第 ${number} 轮`,
@@ -168,7 +221,11 @@ const TEXT = {
       needPlayers: ({ min }) => `至少需要 ${min} 个人才能开始。`,
     },
     system: {
-      gameStarted: () => "游戏开始！看看你的秘密词。你们当中有一个人的词不一样...",
+      gameStarted: ({ hasWhiteboard }) =>
+        "游戏开始！看看你的秘密词。你们当中有一个人的词不一样..." + (hasWhiteboard ? "还有一个人根本没有词 🫥" : ""),
+      powerUsed: ({ power, name }) => `⚡ 有人对 ${name} 使用了「${TEXT.zh.powerNames[power]}」！`,
+      whiteboardWrong: ({ name, guess }) => `🫥 ${name} 猜了「${guess}」……错了！出局。`,
+      whiteboardWins: ({ name }) => `🫥 白板 ${name} 猜中了词，独自获胜！`,
       roundStart: ({ round }) => `第 ${round} 轮：用一句搞笑的话描述你的词，别太明显！`,
       votingStart: () => "投票时间！谁是卧底？投票时可以聊天。",
       froze: [
@@ -392,6 +449,35 @@ element("play-again-button").onclick = () => socket.emit("playAgain");
 for (const button of document.querySelectorAll("[data-word-language]")) {
   button.onclick = () => socket.emit("setWordLanguage", button.dataset.wordLanguage);
 }
+for (const button of document.querySelectorAll("[data-gross-words]")) {
+  button.onclick = () => socket.emit("setGrossWords", button.dataset.grossWords === "on");
+}
+
+// Superpower panel (imposter only)
+let selectedPower = null;
+element("power-button").onclick = () => {
+  element("power-panel").classList.toggle("hidden");
+  renderPowerPanel();
+};
+element("power-choices").onclick = (event) => {
+  const button = event.target.closest("[data-power]");
+  if (!button) return;
+  selectedPower = button.dataset.power;
+  renderPowerPanel();
+};
+element("power-targets").onclick = (event) => {
+  const button = event.target.closest("[data-target-id]");
+  if (!button || !selectedPower) return;
+  socket.emit("usePower", { power: selectedPower, targetId: button.dataset.targetId });
+  selectedPower = null;
+  element("power-panel").classList.add("hidden");
+};
+
+// Whiteboard's one guess
+element("guess-button").onclick = () => {
+  const guess = prompt(text().guessPrompt);
+  if (guess && guess.trim()) socket.emit("guessWord", guess.trim());
+};
 
 element("leave-button").onclick = () => {
   if (!confirm(text().confirmLeave)) return;
@@ -466,6 +552,7 @@ socket.on("leftRoom", () => {
   state = null;
   writeStorage("imposter-room", null);
   clearInterval(timerInterval);
+  for (const power of ["glitch", "mosaic", "flip"]) document.body.classList.remove(`fx-${power}`);
   showScreen(homeScreen);
 });
 
@@ -484,11 +571,16 @@ function render() {
 
 function renderLobby() {
   showScreen(lobbyScreen);
+  renderEffects();
   const isHost = state.hostId === state.yourId;
   element("lobby-code").textContent = state.roomCode;
 
   for (const button of document.querySelectorAll("[data-word-language]")) {
     button.classList.toggle("active", button.dataset.wordLanguage === state.wordLanguage);
+    button.disabled = !isHost;
+  }
+  for (const button of document.querySelectorAll("[data-gross-words]")) {
+    button.classList.toggle("active", (button.dataset.grossWords === "on") === state.grossWords);
     button.disabled = !isHost;
   }
 
@@ -528,7 +620,8 @@ function renderGame() {
   const me = findPlayer(state.yourId);
   const isMyTurn = state.currentSpeakerId === state.yourId;
 
-  element("secret-word").textContent = state.yourWord;
+  renderRole();
+  renderEffects();
 
   // Phase label and chat box behaviour
   let phaseText = "";
@@ -558,6 +651,70 @@ function renderGame() {
   renderGameOver();
 }
 
+function renderRole() {
+  const roleLabel = element("role-label");
+  const word = element("secret-word");
+  const isWhiteboard = state.yourRole === "whiteboard";
+  roleLabel.textContent =
+    state.yourRole === "imposter" ? text().roleImposter : isWhiteboard ? text().roleWhiteboard : text().yourWord;
+  word.textContent = isWhiteboard ? state.whiteboardHint : state.yourWord;
+  word.classList.toggle("whiteboard-hint", isWhiteboard);
+
+  const powerButton = element("power-button");
+  const showPower = state.yourRole === "imposter" && state.powersLeft > 0 && ["clues", "voting"].includes(state.phase);
+  powerButton.classList.toggle("hidden", !showPower);
+  powerButton.disabled = !state.canUsePower;
+  powerButton.textContent = state.canUsePower ? text().powerButton(state.powersLeft) : text().powerUsedThisRound;
+  if (!state.canUsePower) element("power-panel").classList.add("hidden");
+  else renderPowerPanel();
+
+  element("guess-button").classList.toggle("hidden", !state.canGuess);
+}
+
+function renderPowerPanel() {
+  const choices = element("power-choices");
+  choices.replaceChildren();
+  for (const power of POWERS) {
+    // Time accelerate only works while people are giving clues
+    if (power.id === "speed" && state.phase !== "clues") continue;
+    const button = document.createElement("button");
+    button.dataset.power = power.id;
+    button.className = power.id === selectedPower ? "selected" : "";
+    button.textContent = `${power.icon} ${text().powers[power.id]}`;
+    choices.append(button);
+  }
+  const targets = element("power-targets");
+  targets.replaceChildren();
+  for (const player of state.players) {
+    if (!player.alive || player.id === state.yourId) continue;
+    const button = document.createElement("button");
+    button.dataset.targetId = player.id;
+    button.disabled = !selectedPower;
+    button.append(createAvatar(player.avatar, "tiny"), document.createTextNode(player.name));
+    targets.append(button);
+  }
+}
+
+// Screen effects from the imposter's superpowers
+let effectTimeout = null;
+function renderEffects() {
+  const effects = state.yourEffects || {};
+  const active = Object.keys(effects).filter((power) => effects[power] > Date.now());
+  for (const power of ["glitch", "mosaic", "flip"]) {
+    document.body.classList.toggle(`fx-${power}`, active.includes(power));
+  }
+  const banner = element("effect-banner");
+  banner.classList.toggle("hidden", !active.length);
+  banner.textContent = active.length ? text().hitBy(active.map((power) => text().powerNames[power]).join(" + ")) : "";
+
+  // Turn effects off on time even if no new state arrives
+  clearTimeout(effectTimeout);
+  if (active.length) {
+    const soonestEnd = Math.min(...active.map((power) => effects[power]));
+    effectTimeout = setTimeout(renderEffects, soonestEnd - Date.now() + 50);
+  }
+}
+
 function renderTimer() {
   clearInterval(timerInterval);
   const timer = element("timer");
@@ -583,6 +740,7 @@ function renderGamePlayers(me) {
   for (const player of state.players) {
     let tagText = "";
     if (player.id === imposterId) tagText = text().imposterTag;
+    else if (player.id === state.reveal?.whiteboardId) tagText = text().whiteboardTag;
     else if (!player.connected) tagText = text().leftTag;
     else if (state.phase === "voting" && player.hasVoted) tagText = text().hasVoted;
 
@@ -707,7 +865,12 @@ function renderGameOver() {
 
   const isHost = state.hostId === state.yourId;
   const { winner, civilianWord, imposterWord, imposterId } = state.reveal;
-  element("winner-text").textContent = winner === "imposter" ? text().imposterWinsTitle : text().playersWinTitle;
+  element("winner-text").textContent =
+    winner === "imposter"
+      ? text().imposterWinsTitle
+      : winner === "whiteboard"
+        ? text().whiteboardWinsTitle
+        : text().playersWinTitle;
   element("words-text").textContent = text().wordsReveal(civilianWord, playerName(imposterId), imposterWord);
 
   const scoreboard = element("scoreboard");

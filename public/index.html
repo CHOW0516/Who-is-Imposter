@@ -58,6 +58,14 @@
         </div>
       </div>
 
+      <div class="word-language">
+        <span data-i18n="grossWords"></span>
+        <div class="toggle">
+          <button data-gross-words="on" data-i18n="on"></button>
+          <button data-gross-words="off" data-i18n="off"></button>
+        </div>
+      </div>
+
       <div class="players-box">
         <div id="lobby-players" class="players-row"></div>
       </div>
@@ -73,14 +81,28 @@
 
       <div class="word-bar">
         <div>
-          <div class="muted small" data-i18n="yourWord"></div>
+          <div class="muted small" id="role-label"></div>
           <div class="secret-word" id="secret-word"></div>
+          <div class="role-actions">
+            <button id="power-button" class="power-button hidden"></button>
+            <button id="guess-button" class="pill-button hidden" data-i18n="guessWord"></button>
+          </div>
         </div>
         <div class="status">
           <div id="phase-label" class="phase-label"></div>
           <div id="timer" class="timer"></div>
         </div>
       </div>
+
+      <!-- Imposter's superpower panel: pick a power, then a target -->
+      <div id="power-panel" class="card power-panel hidden">
+        <div class="muted small" data-i18n="pickPower"></div>
+        <div id="power-choices" class="power-choices"></div>
+        <div class="muted small" data-i18n="pickTarget"></div>
+        <div id="power-targets" class="power-targets"></div>
+      </div>
+
+      <div id="effect-banner" class="effect-banner hidden"></div>
 
       <div id="gameover-box" class="card gameover hidden">
         <div id="winner-text" class="winner-text"></div>

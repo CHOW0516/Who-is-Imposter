@@ -42,13 +42,14 @@ const TEXT = {
     on: "On",
     off: "Off",
     startGame: "Start game",
-    needThree: "Need at least 3 players. Share the code with your friends!",
+    needMore: (min) => `Need at least ${min} players. Share the code with your friends!`,
     hostStart: "Everyone here? Hit start!",
     waitingHost: (name) => `Waiting for ${name} to start...`,
     yourWord: "Your secret word",
     playAgain: "Play again",
     send: "Send",
     roleImposter: "😈 You are the IMPOSTER. Your word:",
+    partner: (names) => `Your imposter partner: ${names}`,
     roleWhiteboard: "🫥 You are the WHITEBOARD. Letters so far:",
     powerButton: (left) => `⚡ Superpower (${left} left)`,
     powerUsedThisRound: "⚡ Used this round",
@@ -104,9 +105,11 @@ const TEXT = {
       needPlayers: ({ min }) => `You need at least ${min} players to start.`,
     },
     system: {
-      gameStarted: ({ hasWhiteboard }) =>
-        "Game started! Check your secret word. One of you has a different word..." +
+      gameStarted: ({ imposterCount, hasWhiteboard }) =>
+        "Game started! Check your secret word. " +
+        (imposterCount === 2 ? "TWO of you have a different word..." : "One of you has a different word...") +
         (hasWhiteboard ? " And someone has NO word at all 🫥" : ""),
+      playerLeft: ({ name }) => `🚪 ${name} left the game and is out.`,
       powerUsed: ({ power, name }) => `⚡ Someone used ${TEXT.en.powerNames[power]} on ${name}!`,
       whiteboardWrong: ({ name, guess }) => `🫥 ${name} guessed "${guess}"... WRONG! They're out.`,
       whiteboardWins: ({ name }) => `🫥 ${name} the Whiteboard guessed the word and wins everything!`,
@@ -159,13 +162,14 @@ const TEXT = {
     on: "开",
     off: "关",
     startGame: "开始游戏",
-    needThree: "至少需要 3 个人。把房间号发给朋友吧！",
+    needMore: (min) => `至少需要 ${min} 个人。把房间号发给朋友吧！`,
     hostStart: "人齐了吗？点开始！",
     waitingHost: (name) => `等待 ${name} 开始游戏...`,
     yourWord: "你的秘密词",
     playAgain: "再来一局",
     send: "发送",
     roleImposter: "😈 你是卧底！你的词：",
+    partner: (names) => `你的卧底队友：${names}`,
     roleWhiteboard: "🫥 你是白板！目前的字：",
     powerButton: (left) => `⚡ 超能力（剩 ${left} 次）`,
     powerUsedThisRound: "⚡ 这轮已用过",
@@ -221,8 +225,11 @@ const TEXT = {
       needPlayers: ({ min }) => `至少需要 ${min} 个人才能开始。`,
     },
     system: {
-      gameStarted: ({ hasWhiteboard }) =>
-        "游戏开始！看看你的秘密词。你们当中有一个人的词不一样..." + (hasWhiteboard ? "还有一个人根本没有词 🫥" : ""),
+      gameStarted: ({ imposterCount, hasWhiteboard }) =>
+        "游戏开始！看看你的秘密词。" +
+        (imposterCount === 2 ? "你们当中有两个人的词不一样..." : "你们当中有一个人的词不一样...") +
+        (hasWhiteboard ? "还有一个人根本没有词 🫥" : ""),
+      playerLeft: ({ name }) => `🚪 ${name} 离开了游戏，出局。`,
       powerUsed: ({ power, name }) => `⚡ 有人对 ${name} 使用了「${TEXT.zh.powerNames[power]}」！`,
       whiteboardWrong: ({ name, guess }) => `🫥 ${name} 猜了「${guess}」……错了！出局。`,
       whiteboardWins: ({ name }) => `🫥 白板 ${name} 猜中了词，独自获胜！`,
@@ -268,10 +275,11 @@ function writeStorage(key, value) {
   } catch { /* storage blocked, game still works */ }
 }
 
-let playerId = readStorage("imposter-player-id");
-if (!playerId) {
-  playerId = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  writeStorage("imposter-player-id", playerId);
+// A secret that proves "this browser is this player" when rejoining. Never shown to other players.
+let playerToken = readStorage("imposter-player-id");
+if (!playerToken) {
+  playerToken = crypto.getRandomValues(new Uint32Array(4)).join("-");
+  writeStorage("imposter-player-id", playerToken);
 }
 
 const browserLanguage = (navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en";
@@ -429,7 +437,7 @@ element("photo-input").onchange = (event) => {
 
 element("create-button").onclick = () => {
   const name = getName();
-  if (name) socket.emit("createRoom", { playerId, name, avatar: myAvatar, wordLanguage: language });
+  if (name) socket.emit("createRoom", { token: playerToken, name, avatar: myAvatar, wordLanguage: language });
 };
 
 element("join-button").onclick = () => {
@@ -437,7 +445,7 @@ element("join-button").onclick = () => {
   const roomCode = codeInput.value.trim().toUpperCase();
   if (!name) return;
   if (roomCode.length !== 4) return showError(text().codeLength);
-  socket.emit("joinRoom", { roomCode, playerId, name, avatar: myAvatar });
+  socket.emit("joinRoom", { roomCode, token: playerToken, name, avatar: myAvatar });
 };
 codeInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") element("join-button").click();
@@ -534,7 +542,7 @@ socket.on("connect", () => {
   const savedRoom = readStorage("imposter-room");
   const savedName = readStorage("imposter-name");
   if (savedRoom && savedName) {
-    socket.emit("joinRoom", { roomCode: savedRoom, playerId, name: savedName, avatar: myAvatar });
+    socket.emit("joinRoom", { roomCode: savedRoom, token: playerToken, name: savedName, avatar: myAvatar });
   }
 });
 
@@ -591,11 +599,12 @@ function renderLobby() {
     row.append(createPlayerTile(player, tag));
   }
 
-  const enoughPlayers = state.players.length >= 3;
+  const minPlayers = 4; // same as MIN_PLAYERS in server.js
+  const enoughPlayers = state.players.length >= minPlayers;
   element("start-button").classList.toggle("hidden", !isHost);
   element("start-button").disabled = !enoughPlayers;
   element("lobby-hint").textContent = !enoughPlayers
-    ? text().needThree
+    ? text().needMore(minPlayers)
     : isHost
       ? text().hostStart
       : text().waitingHost(playerName(state.hostId));
@@ -657,6 +666,9 @@ function renderRole() {
   const isWhiteboard = state.yourRole === "whiteboard";
   roleLabel.textContent =
     state.yourRole === "imposter" ? text().roleImposter : isWhiteboard ? text().roleWhiteboard : text().yourWord;
+  if (state.partnerIds.length) {
+    roleLabel.textContent += " " + text().partner(state.partnerIds.map(playerName).join(", "));
+  }
   word.textContent = isWhiteboard ? state.whiteboardHint : state.yourWord;
   word.classList.toggle("whiteboard-hint", isWhiteboard);
 
@@ -735,11 +747,11 @@ function renderGamePlayers(me) {
   const row = element("game-players");
   row.replaceChildren();
   const canVote = state.phase === "voting" && me.alive;
-  const imposterId = state.reveal?.imposterId;
+  const imposterIds = state.reveal?.imposterIds || [];
 
   for (const player of state.players) {
     let tagText = "";
-    if (player.id === imposterId) tagText = text().imposterTag;
+    if (imposterIds.includes(player.id)) tagText = text().imposterTag;
     else if (player.id === state.reveal?.whiteboardId) tagText = text().whiteboardTag;
     else if (!player.connected) tagText = text().leftTag;
     else if (state.phase === "voting" && player.hasVoted) tagText = text().hasVoted;
@@ -749,7 +761,7 @@ function renderGamePlayers(me) {
     tile.classList.toggle("offline", !player.connected);
     tile.classList.toggle("speaking", player.id === state.currentSpeakerId);
     tile.classList.toggle("voted-by-you", player.id === state.yourVote);
-    tile.classList.toggle("imposter", player.id === imposterId);
+    tile.classList.toggle("imposter", imposterIds.includes(player.id));
 
     if (!player.alive && state.phase !== "gameover") {
       const badge = document.createElement("span");
@@ -864,14 +876,14 @@ function renderGameOver() {
   if (state.phase !== "gameover") return;
 
   const isHost = state.hostId === state.yourId;
-  const { winner, civilianWord, imposterWord, imposterId } = state.reveal;
+  const { winner, civilianWord, imposterWord, imposterIds } = state.reveal;
   element("winner-text").textContent =
     winner === "imposter"
       ? text().imposterWinsTitle
       : winner === "whiteboard"
         ? text().whiteboardWinsTitle
         : text().playersWinTitle;
-  element("words-text").textContent = text().wordsReveal(civilianWord, playerName(imposterId), imposterWord);
+  element("words-text").textContent = text().wordsReveal(civilianWord, imposterIds.map(playerName).join(" & "), imposterWord);
 
   const scoreboard = element("scoreboard");
   scoreboard.replaceChildren();

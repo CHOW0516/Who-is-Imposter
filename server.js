@@ -1,13 +1,17 @@
 const http = require("http");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { Server } = require("socket.io");
 const { WORD_PAIRS } = require("./words");
 
 const PORT = process.env.PORT || 3000;
-const MIN_PLAYERS = 3;
+const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 10;
-const CLUE_SECONDS = 45;
+const TWO_IMPOSTERS_FROM = 7; // 7+ players get 2 imposters
+const CLUE_SECONDS = 30;
+// A player whose connection drops (e.g. phone switched apps) keeps their seat this long
+const RECONNECT_GRACE_MS = 3 * 60 * 1000;
 const VOTE_SECONDS = 60;
 const REVEAL_SECONDS = 8;
 const MAX_NAME_LENGTH = 16;
@@ -16,10 +20,12 @@ const MAX_PHOTO_LENGTH = 20000; // a 64x64 JPEG is usually 2-5 KB
 const STICKER_COOLDOWN_MS = 1500;
 const LANGUAGES = ["en", "zh"];
 
-// Whiteboard: a player with no word who gets one more letter each round (5+ players only)
+// Whiteboard: a player with no word who gets one more letter each round, starting in round 2,
+// up to half the word (5+ players only)
 const WHITEBOARD_MIN_PLAYERS = 5;
+const WHITEBOARD_WIN_POINTS = 3;
 
-// Imposter superpowers: 1 per round, 3 per game
+// Imposter superpowers: each imposter gets 1 per round, 3 per game
 const POWERS = ["glitch", "mosaic", "speed", "flip"];
 const POWERS_PER_GAME = 3;
 const POWER_SECONDS = 15;
@@ -131,6 +137,19 @@ function cleanAvatar(avatar) {
   return isSmallJpeg ? avatar : pickRandom(AVATAR_EMOJIS);
 }
 
+function isImposter(room, playerId) {
+  return room.imposterIds.includes(playerId);
+}
+
+// The imposters win once they are as many as everyone else; the players win when every imposter is out.
+function winnerNow(room) {
+  const alive = alivePlayers(room);
+  const aliveImposters = alive.filter((player) => isImposter(room, player.id)).length;
+  if (aliveImposters === 0) return "civilians";
+  if (aliveImposters >= alive.length - aliveImposters) return "imposter";
+  return null;
+}
+
 function alivePlayers(room) {
   return room.players.filter((player) => player.alive);
 }
@@ -171,11 +190,11 @@ function sendState(room) {
   const gameOver = room.phase === "gameover";
   for (const player of room.players) {
     if (!player.socketId) continue;
-    const isImposter = player.id === room.imposterId;
+    const playerIsImposter = isImposter(room, player.id);
     const isWhiteboard = player.id === room.whiteboardId;
     const inGame = room.phase !== "lobby";
     let yourRole = null;
-    if (inGame) yourRole = isImposter ? "imposter" : isWhiteboard ? "whiteboard" : "player";
+    if (inGame) yourRole = playerIsImposter ? "imposter" : isWhiteboard ? "whiteboard" : "player";
     io.to(player.socketId).emit("state", {
       roomCode: room.code,
       phase: room.phase,
@@ -185,11 +204,13 @@ function sendState(room) {
       hostId: room.hostId,
       yourId: player.id,
       yourRole,
-      yourWord: !inGame || isWhiteboard ? null : isImposter ? room.imposterWord : room.civilianWord,
+      yourWord: !inGame || isWhiteboard ? null : playerIsImposter ? room.imposterWord : room.civilianWord,
+      // Imposters know their partner (only when there are 2)
+      partnerIds: playerIsImposter ? room.imposterIds.filter((id) => id !== player.id) : [],
       whiteboardHint: inGame && isWhiteboard ? whiteboardHint(room) : null,
       canGuess: isWhiteboard && player.alive && !room.whiteboardGuessed && ["clues", "voting"].includes(room.phase),
-      powersLeft: isImposter ? room.powersLeft : null,
-      canUsePower: isImposter && canUsePower(room, player),
+      powersLeft: playerIsImposter ? player.powersLeft : null,
+      canUsePower: playerIsImposter && canUsePower(room, player),
       yourEffects: Object.fromEntries(
         Object.entries(player.effects || {}).filter(([, until]) => until > Date.now())
       ),
@@ -209,7 +230,7 @@ function sendState(room) {
       // Only revealed at the end of the game
       reveal: gameOver
         ? {
-            imposterId: room.imposterId,
+            imposterIds: room.imposterIds,
             whiteboardId: room.whiteboardId,
             civilianWord: room.civilianWord,
             imposterWord: room.imposterWord,
@@ -229,11 +250,10 @@ function startGame(room) {
   const swap = Math.random() < 0.5;
   room.civilianWord = swap ? secondWord : firstWord;
   room.imposterWord = swap ? firstWord : secondWord;
-  room.imposterId = pickRandom(room.players).id;
-  room.whiteboardId = null;
-  if (room.players.length >= WHITEBOARD_MIN_PLAYERS) {
-    room.whiteboardId = pickRandom(room.players.filter((player) => player.id !== room.imposterId)).id;
-  }
+  const imposterCount = room.players.length >= TWO_IMPOSTERS_FROM ? 2 : 1;
+  const shuffledPlayers = shuffle(room.players);
+  room.imposterIds = shuffledPlayers.slice(0, imposterCount).map((player) => player.id);
+  room.whiteboardId = room.players.length >= WHITEBOARD_MIN_PLAYERS ? shuffledPlayers[imposterCount].id : null;
   // The Whiteboard gets the letters in a random order, one more each round (spaces are free)
   room.letterOrder = shuffle(
     Array.from(room.civilianWord)
@@ -241,8 +261,6 @@ function startGame(room) {
       .filter((index) => index !== null)
   );
   room.whiteboardGuessed = false;
-  room.powersLeft = POWERS_PER_GAME;
-  room.powerUsedRound = 0;
   room.round = 0;
   room.winner = null;
   room.messages = [];
@@ -250,8 +268,10 @@ function startGame(room) {
     player.alive = true;
     player.effects = {};
     player.speedUp = false;
+    player.powersLeft = POWERS_PER_GAME;
+    player.powerUsedRound = 0;
   }
-  addSystemMessage(room, "gameStarted", { hasWhiteboard: Boolean(room.whiteboardId) });
+  addSystemMessage(room, "gameStarted", { imposterCount, hasWhiteboard: Boolean(room.whiteboardId) });
   startClueRound(room);
 }
 
@@ -296,7 +316,8 @@ function startSpeakerTimer(room, speakerId, seconds) {
 
 function whiteboardHint(room) {
   const characters = Array.from(room.civilianWord);
-  const revealed = new Set(room.letterOrder.slice(0, room.round));
+  const letterCount = Math.min(room.round - 1, Math.floor(room.letterOrder.length / 2));
+  const revealed = new Set(room.letterOrder.slice(0, Math.max(0, letterCount)));
   return characters.map((character, index) => (character === " " || revealed.has(index) ? character : "_")).join("");
 }
 
@@ -304,19 +325,16 @@ function canUsePower(room, player) {
   return (
     player.alive &&
     ["clues", "voting"].includes(room.phase) &&
-    room.powersLeft > 0 &&
-    room.powerUsedRound !== room.round
+    player.powersLeft > 0 &&
+    player.powerUsedRound !== room.round
   );
 }
 
-// If too few players are left after someone drops out mid-round, end the game now.
-function endIfImposterWins(room) {
-  const aliveAndConnected = alivePlayers(room).filter((player) => player.socketId);
-  if (aliveAndConnected.length <= 2) {
-    endGame(room, "imposter");
-    return true;
-  }
-  return false;
+// Someone dropped out mid-round: end the game now if that decided it.
+function endIfDecided(room) {
+  const winner = winnerNow(room);
+  if (winner) endGame(room, winner);
+  return Boolean(winner);
 }
 
 function startVoting(room) {
@@ -352,7 +370,7 @@ function finishVoting(room) {
     addSystemMessage(room, "eliminated", {
       name: eliminated.name,
       variant: randomVariant("eliminated"),
-      wasImposter: eliminated.id === room.imposterId,
+      wasImposter: isImposter(room, eliminated.id),
     });
   }
 
@@ -364,17 +382,7 @@ function finishVoting(room) {
 }
 
 function checkWinOrContinue(room) {
-  const imposter = findPlayer(room, room.imposterId);
-  // An imposter who left the game counts as caught.
-  const imposterStillIn = imposter && imposter.alive && imposter.socketId;
-  const aliveAndConnected = alivePlayers(room).filter((player) => player.socketId);
-  if (!imposterStillIn) {
-    endGame(room, "civilians");
-  } else if (aliveAndConnected.length <= 2) {
-    endGame(room, "imposter");
-  } else {
-    startClueRound(room);
-  }
+  if (!endIfDecided(room)) startClueRound(room);
 }
 
 function endGame(room, winner) {
@@ -382,12 +390,12 @@ function endGame(room, winner) {
   room.phase = "gameover";
   room.winner = winner;
   for (const player of room.players) {
-    const isImposter = player.id === room.imposterId;
-    if (winner === "imposter" && isImposter) player.score += 3;
-    if (winner === "civilians" && !isImposter) player.score += 1;
-    if (winner === "whiteboard" && player.id === room.whiteboardId) player.score += 4;
+    const playerIsImposter = isImposter(room, player.id);
+    if (winner === "imposter" && playerIsImposter) player.score += 3;
+    if (winner === "civilians" && !playerIsImposter) player.score += 1;
+    if (winner === "whiteboard" && player.id === room.whiteboardId) player.score += WHITEBOARD_WIN_POINTS;
   }
-  const imposterName = findPlayer(room, room.imposterId)?.name || "?";
+  const imposterName = room.imposterIds.map((id) => findPlayer(room, id)?.name || "?").join(" & ");
   if (winner === "whiteboard") {
     addSystemMessage(room, "whiteboardWins", { name: findPlayer(room, room.whiteboardId)?.name || "?" });
   } else {
@@ -398,7 +406,7 @@ function endGame(room, winner) {
 function backToLobby(room) {
   clearTimer(room);
   room.phase = "lobby";
-  room.imposterId = null;
+  room.imposterIds = [];
   room.whiteboardId = null;
   room.winner = null;
   room.votes = new Map();
@@ -423,11 +431,9 @@ function createRoom(wordLanguage) {
     whiteboardId: null,
     letterOrder: [],
     whiteboardGuessed: false,
-    powersLeft: 0,
-    powerUsedRound: 0,
     civilianWord: null,
     imposterWord: null,
-    imposterId: null,
+    imposterIds: [],
     speakingOrder: [],
     speakerIndex: -1,
     votes: new Map(),
@@ -436,29 +442,56 @@ function createRoom(wordLanguage) {
     winner: null,
     timer: null,
     deadline: null,
+    deleteTimer: null,
   };
   rooms.set(room.code, room);
   return room;
 }
 
-// A player left mid-game: keep the game moving.
-function handlePlayerLeft(room, player) {
-  if (room.phase === "lobby") {
-    room.players = room.players.filter((otherPlayer) => otherPlayer.id !== player.id);
-  }
+// A player's connection is gone. Keep the game moving, but keep their seat (and the room)
+// for a while in case they come back. "graceMs" is 0 when they pressed Leave.
+function handlePlayerOffline(room, player, graceMs) {
+  player.socketId = null;
   if (room.hostId === player.id) {
     const newHost = room.players.find((otherPlayer) => otherPlayer.socketId);
-    room.hostId = newHost ? newHost.id : null;
-  }
-  if (!room.players.some((otherPlayer) => otherPlayer.socketId)) {
-    clearTimer(room);
-    rooms.delete(room.code);
-    return;
+    if (newHost) room.hostId = newHost.id;
   }
   if (room.phase === "clues" && room.speakingOrder[room.speakerIndex] === player.id) {
     nextSpeaker(room);
   } else if (room.phase === "voting" && everyoneVoted(room)) {
     finishVoting(room);
+  }
+
+  clearTimeout(player.removeTimer);
+  player.removeTimer = setTimeout(() => removePlayer(room, player), graceMs);
+
+  if (!room.players.some((otherPlayer) => otherPlayer.socketId)) {
+    clearTimeout(room.deleteTimer);
+    room.deleteTimer = setTimeout(() => {
+      if (room.players.some((otherPlayer) => otherPlayer.socketId)) return;
+      clearTimer(room);
+      rooms.delete(room.code);
+    }, RECONNECT_GRACE_MS);
+  }
+  sendState(room);
+}
+
+// The player did not come back in time (or pressed Leave).
+function removePlayer(room, player) {
+  if (player.socketId || !room.players.includes(player)) return; // they came back, or were already dropped
+  if (room.phase === "lobby") {
+    room.players = room.players.filter((otherPlayer) => otherPlayer.id !== player.id);
+  } else if (player.alive && room.phase !== "gameover") {
+    player.alive = false;
+    for (const [voterId, targetId] of room.votes) {
+      if (voterId === player.id || targetId === player.id) room.votes.delete(voterId);
+    }
+    addSystemMessage(room, "playerLeft", { name: player.name });
+    if (["clues", "voting"].includes(room.phase)) endIfDecided(room);
+  }
+  if (room.hostId === player.id) {
+    const newHost = room.players.find((otherPlayer) => otherPlayer.socketId);
+    room.hostId = newHost ? newHost.id : null;
   }
   sendState(room);
 }
@@ -474,28 +507,40 @@ io.on("connection", (socket) => {
     socket.emit("errorMessage", { key, params });
   }
 
-  function joinRoom(room, playerId, rawName, rawAvatar) {
+  // "token" is a secret kept in the player's browser and never shown to others.
+  // Other players only ever see the public "id", so nobody can take over someone else's seat.
+  function joinRoom(room, rawToken, rawName, rawAvatar) {
     const name = cleanText(rawName, MAX_NAME_LENGTH);
     if (!name) return sendError("needName");
-    const safePlayerId = cleanText(playerId, 40);
-    if (!safePlayerId) return sendError("refresh");
+    const token = cleanText(rawToken, 40);
+    if (!token) return sendError("refresh");
 
     // Same browser coming back (refresh or lost connection)
-    let player = findPlayer(room, safePlayerId);
+    let player = room.players.find((otherPlayer) => otherPlayer.token === token);
     if (player) {
       if (player.socketId && player.socketId !== socket.id) {
         io.sockets.sockets.get(player.socketId)?.disconnect(true);
       }
       player.socketId = socket.id;
+      clearTimeout(player.removeTimer);
     } else {
       if (room.phase !== "lobby") return sendError("alreadyStarted");
       if (room.players.length >= MAX_PLAYERS) return sendError("roomFull");
       const nameTaken = room.players.some((otherPlayer) => otherPlayer.name.toLowerCase() === name.toLowerCase());
       if (nameTaken) return sendError("nameTaken");
-      player = { id: safePlayerId, name, avatar: cleanAvatar(rawAvatar), socketId: socket.id, alive: true, score: 0 };
+      player = {
+        id: crypto.randomUUID(),
+        token,
+        name,
+        avatar: cleanAvatar(rawAvatar),
+        socketId: socket.id,
+        alive: true,
+        score: 0,
+      };
       room.players.push(player);
     }
     if (!room.hostId) room.hostId = player.id;
+    clearTimeout(room.deleteTimer);
 
     currentRoom = room;
     currentPlayer = player;
@@ -503,19 +548,19 @@ io.on("connection", (socket) => {
     sendState(room);
   }
 
-  socket.on("createRoom", ({ playerId, name, avatar, wordLanguage } = {}) => {
+  socket.on("createRoom", ({ token, name, avatar, wordLanguage } = {}) => {
     if (currentRoom) return;
     if (!cleanText(name, MAX_NAME_LENGTH)) return sendError("needName");
     const room = createRoom(wordLanguage);
-    joinRoom(room, playerId, name, avatar);
+    joinRoom(room, token, name, avatar);
     if (!currentRoom) rooms.delete(room.code);
   });
 
-  socket.on("joinRoom", ({ roomCode, playerId, name, avatar } = {}) => {
+  socket.on("joinRoom", ({ roomCode, token, name, avatar } = {}) => {
     if (currentRoom) return;
     const room = rooms.get(cleanText(roomCode, 4).toUpperCase());
     if (!room) return sendError("roomNotFound");
-    joinRoom(room, playerId, name, avatar);
+    joinRoom(room, token, name, avatar);
   });
 
   socket.on("setWordLanguage", (wordLanguage) => {
@@ -535,14 +580,14 @@ io.on("connection", (socket) => {
 
   socket.on("usePower", ({ power, targetId } = {}) => {
     const room = currentRoom;
-    if (!room || currentPlayer.id !== room.imposterId || !canUsePower(room, currentPlayer)) return;
+    if (!room || !isImposter(room, currentPlayer.id) || !canUsePower(room, currentPlayer)) return;
     if (!POWERS.includes(power)) return;
     if (power === "speed" && room.phase !== "clues") return; // speed only makes sense during clues
     const target = findPlayer(room, targetId);
-    if (!target || !target.alive || target.id === currentPlayer.id) return;
+    if (!target || !target.alive || isImposter(room, target.id)) return; // not yourself or your partner
 
-    room.powersLeft -= 1;
-    room.powerUsedRound = room.round;
+    currentPlayer.powersLeft -= 1;
+    currentPlayer.powerUsedRound = room.round;
     if (power === "speed") {
       const isSpeakingNow = room.speakingOrder[room.speakerIndex] === target.id;
       const secondsLeft = (room.deadline - Date.now()) / 1000;
@@ -577,7 +622,7 @@ io.on("connection", (socket) => {
         if (voterId === currentPlayer.id || targetId === currentPlayer.id) room.votes.delete(voterId);
       }
       addSystemMessage(room, "whiteboardWrong", { name: currentPlayer.name, guess });
-      if (!endIfImposterWins(room)) {
+      if (!endIfDecided(room)) {
         if (room.phase === "clues" && room.speakingOrder[room.speakerIndex] === currentPlayer.id) {
           nextSpeaker(room);
         } else if (room.phase === "voting" && everyoneVoted(room)) {
@@ -662,18 +707,16 @@ io.on("connection", (socket) => {
     if (!currentRoom) return;
     const room = currentRoom;
     const player = currentPlayer;
-    player.socketId = null;
     socket.leave(room.code);
     currentRoom = null;
     currentPlayer = null;
-    handlePlayerLeft(room, player);
+    handlePlayerOffline(room, player, 0);
     socket.emit("leftRoom");
   });
 
   socket.on("disconnect", () => {
     if (!currentRoom || currentPlayer.socketId !== socket.id) return;
-    currentPlayer.socketId = null;
-    handlePlayerLeft(currentRoom, currentPlayer);
+    handlePlayerOffline(currentRoom, currentPlayer, RECONNECT_GRACE_MS);
   });
 });
 
